@@ -116,7 +116,7 @@ for gdrive_id in os.sys.argv[1:]:
 			for chunk in data.iter_content(1024):
 				fd.write(chunk)
 			#print(fname)
-		if f['mimeType'] in export_format and export_format[f['mimetype']][1][0] == "o":
+		if f['mimeType'] in export_format and export_format[f['mimeType']][1][0] == "o":
 			subprocess.call(['unoconv', '-f', 'f{}'.format(export_format[f['mimeType']][1]), fname], cwd=f_repo_path)
 			subprocess.call(['git', 'add', ffname], cwd=f_repo_path)
 		else:
