@@ -90,6 +90,7 @@ for gdrive_id in os.sys.argv[1:]:
 	f = oauth.get(api_url_tpl.format("/files/{}".format(gdrive_id))).json()
 	title = f['title']
 	
+	desc_fname = os.path.join(f_repo_path,".desc")
 	if f['mimeType'] in export_format:
 		fname = os.path.join(f_repo_path,"{}.{}".format(title,export_format[f['mimeType']][1]))
 		ffname = os.path.join(f_repo_path,"{}.f{}".format(title,export_format[f['mimeType']][1]))
@@ -129,3 +130,5 @@ for gdrive_id in os.sys.argv[1:]:
 	else:
 		if f['mimeType'] in export_format:
 			os.remove(fname)
+		with open(desc_fname, 'w', encoding='utf-8') as descfd:
+			descfd.write(f['description'])
