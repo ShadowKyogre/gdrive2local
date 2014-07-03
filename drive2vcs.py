@@ -106,7 +106,7 @@ if __name__ == "__main__":
 		r = oauth.get(api_url_tpl.format("/files/{}/revisions".format(gdrive_id)))
 		f_repo_path = os.path.join(args.directory,gdrive_id)
 		f = oauth.get(api_url_tpl.format("/files/{}".format(gdrive_id))).json()
-		title = f['title']
+		title = f['title'].replace('/', ' or ')
 		
 		desc_fname = os.path.join(f_repo_path,".desc")
 		
@@ -122,7 +122,18 @@ if __name__ == "__main__":
 		if not os.path.exists(f_repo_path):
 			os.makedirs(f_repo_path)
 			subprocess.call(['git', 'init'], cwd=f_repo_path)
-		for rev in r.json()['items']:
+		for rev in r.json().get('items',[]):
+			rev_chk=''
+			try:
+				rev_chk=subprocess.check_output(['git', 'log', '--grep', 
+							'Revision {} @'.format(rev['id'])], 
+							cwd=f_repo_path)
+			except subprocess.CalledProcessError:
+				pass
+			else:
+				if rev_chk != b'':
+					print("We already have revision {}, continuing...".format(rev['id']))
+					continue
 			if rev.get('downloadUrl') is None:
 				gdoc_indicator="[GDOC] Revision {} @ {}"
 				optfmt=export_format[f['mimeType']]
@@ -150,6 +161,8 @@ if __name__ == "__main__":
 			#"""
 		else:
 			if f['mimeType'] in export_format.keys():
-				os.remove(fname)
-			with open(desc_fname, 'w', encoding='utf-8') as descfd:
-				descfd.write(f['description'])
+				if os.path.exists(fname):
+					os.remove(fname)
+			if 'description' in f.keys():
+				with open(desc_fname, 'w', encoding='utf-8') as descfd:
+					descfd.write(f['description'])
