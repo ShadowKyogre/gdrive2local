@@ -156,6 +156,7 @@ if __name__ == "__main__":
 				subprocess.call(['git', 'add', fname], cwd=f_repo_path)
 			revdate=parser.parse(rev['modifiedDate']).astimezone(tz.tzlocal())
 			gdoc_indicator = gdoc_indicator.format(rev['id'], revdate)
+			os.environ['GIT_COMMITTER_DATE']=revdate.isoformat()
 			subprocess.call(['git', 'commit', '--date', revdate.isoformat(), 
 					'-m', gdoc_indicator], cwd=f_repo_path)
 			#"""
