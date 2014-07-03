@@ -3,12 +3,12 @@
 from requests_oauthlib import OAuth2Session
 import subprocess
 import os
-from dateutil import parser
-from dateutil import tz
+import re
 import json
 import argparse
 
 if __name__ == "__main__":
+	not_slash=re.compile(r'[^/]+')
 	aparser = argparse.ArgumentParser(prog='drive2ftree', description="Makes a directory tree from the given folder ids")
 	aparser.add_argument('fids', metavar='N', type=str, nargs='*',
 						help='file IDs to process')
@@ -68,19 +68,29 @@ if __name__ == "__main__":
 		token_saver(token)
 
 	api_url_tpl = "https://www.googleapis.com/drive/v2{}"
-	onlyfs = {'q':'mimeType="application/vnd.google-apps.folder"'}
+	#onlyfs = {'q':'mimeType="application/vnd.google-apps.folder"'}
+	
+	#find . -xtype l -type l|rev|cut -d / -f 1|rev <- all files that should be revved
 	
 	def make_ftree(f, parents=[args.directory]):
 		c_url = api_url_tpl.format("/files/{}/children".format(f['id']))
-		children = oauth.get(c_url, params=onlyfs).json()
-		tree_path=parents+[f['title']]
+		children = oauth.get(c_url).json()
+		tree_path=parents+[f['title'].replace('/', ' or ')]
 		desty=os.path.join(*tree_path)
-		print("Making:", desty)
 		if not os.path.exists(desty):
+			print("Making:", desty)
 			os.makedirs(desty)
+		else:
+			print("Already made:", desty)
 		for c in children['items']:
 			nf = oauth.get(c['childLink']).json()
-			make_ftree(nf,parents=tree_path)
+			if nf['mimeType'] == 'application/vnd.google-apps.folder':
+				make_ftree(nf,parents=tree_path)
+			else:
+				if not os.path.lexists(os.path.join(desty, nf['id'])):
+					sympath=not_slash.sub('..', os.path.join(*tree_path[1:]))
+					os.symlink(os.path.join(sympath, nf['id']),
+						os.path.join(desty, nf['id']))
 		if 'description' in f.keys():
 			desc_fname = os.path.join(desty,".desc")
 			with open(desc_fname, 'w', encoding='utf-8') as descfd:
