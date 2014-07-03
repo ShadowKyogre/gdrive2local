@@ -7,6 +7,8 @@ from dateutil import parser
 from dateutil import tz
 import json
 import argparse
+import glob
+import zipfile
 
 """
 https://docs.google.com/document/export?id=C-c-censored!&revision=???&exportFormat=zip
@@ -67,6 +69,7 @@ if __name__ == "__main__":
 		token = None
 
 	def token_saver(token):
+		print("Token expired, updating token...")
 		with open(token_storage, 'w', encoding='utf-8') as t:
 			t.write(json.dumps(token))
 
@@ -111,29 +114,31 @@ if __name__ == "__main__":
 		desc_fname = os.path.join(f_repo_path,".desc")
 		
 		if f['mimeType'] in export_format.keys():
-			fname = os.path.join(f_repo_path,"{}.{}".format(title,export_format[f['mimeType']][1]))
-			ffname = os.path.join(f_repo_path,"{}.f{}".format(title,export_format[f['mimeType']][1]))
+			fname = os.path.join(f_repo_path,"{}.{}".format("{}",export_format[f['mimeType']][1]))
+
 		elif f['mimeType'] == 'application/vnd.google-apps.folder':
 			continue
 		else:
-			fname = os.path.join(f_repo_path,"{}.{}".format(title,export_format[f['mimeType']][1]))
+			fname = os.path.join(f_repo_path,"{}.{}".format("{}",export_format[f['mimeType']][1]))
 
 		print("{} - {} ({})".format(gdrive_id, title, f['mimeType']))
 		if not os.path.exists(f_repo_path):
 			os.makedirs(f_repo_path)
-			subprocess.call(['git', 'init'], cwd=f_repo_path)
-		for rev in r.json().get('items',[]):
+
+		revisions=r.json().get('items',[])
+		for rev in revisions:
 			rev_chk=''
+			revdate=parser.parse(rev['modifiedDate']).astimezone(tz.tzlocal())
 			try:
-				rev_chk=subprocess.check_output(['git', 'log', '--grep', 
-							'Revision {} @'.format(rev['id'])], 
-							cwd=f_repo_path)
+				rev_chk=subprocess.check_output(['ls'],cwd=f_repo_path)
 			except subprocess.CalledProcessError:
 				pass
 			else:
-				if rev_chk != b'':
+				if revdate.isoformat() in rev_chk.decode():
 					print("We already have revision {}, continuing...".format(rev['id']))
 					continue
+				else:
+					print("Downloading revision {}...".format(rev['id']))
 			if rev.get('downloadUrl') is None:
 				gdoc_indicator="[GDOC] Revision {} @ {}"
 				optfmt=export_format[f['mimeType']]
@@ -143,27 +148,29 @@ if __name__ == "__main__":
 			else:
 				gdoc_indicator="[FILE] Revision  {} @ {}"
 				data=oauth.get(rev.get('downloadUrl'))
-			
-			#"""
-			with open(fname, 'wb') as fd:
+
+			with open(fname.format(revdate.isoformat()), 'wb') as fd:
 				for chunk in data.iter_content(1024):
 					fd.write(chunk)
-				#print(fname)
-			if f['mimeType'] in export_format.keys() and export_format[f['mimeType']][1][0] == "o":
-				subprocess.call(['unoconv', '-f', 'f{}'.format(export_format[f['mimeType']][1]), fname], cwd=f_repo_path)
-				subprocess.call(['git', 'add', ffname], cwd=f_repo_path)
-			else:
-				subprocess.call(['git', 'add', fname], cwd=f_repo_path)
-			revdate=parser.parse(rev['modifiedDate']).astimezone(tz.tzlocal())
-			gdoc_indicator = gdoc_indicator.format(rev['id'], revdate)
-			os.environ['GIT_COMMITTER_DATE']=revdate.isoformat()
-			subprocess.call(['git', 'commit', '--date', revdate.isoformat(), 
-					'-m', gdoc_indicator], cwd=f_repo_path)
-			#"""
+
 		else:
-			if f['mimeType'] in export_format.keys():
-				if os.path.exists(fname):
-					os.remove(fname)
+			if f['mimeType'] in export_format.keys() and export_format[f['mimeType']][1][0] == "o":
+				origs=glob.glob(os.path.join(f_repo_path,'*.{}'.format(export_format[f['mimeType']][1])))
+				if len(origs) > 0:
+					subprocess.call(['libreoffice', '--headless', '--convert-to', 
+						'f{}'.format(export_format[f['mimeType']][1])]+origs,
+					cwd=f_repo_path)
+					for o in origs:
+						if os.path.exists(o):
+							os.remove(o)
+
 			if 'description' in f.keys():
 				with open(desc_fname, 'w', encoding='utf-8') as descfd:
 					descfd.write(f['description'])
+
+			print("Storing versions in a zip file...")
+			with zipfile.ZipFile(f_repo_path+".snaps.xz.zip",mode='a') as snapshots:
+				fs=glob.glob(os.path.join(f_repo_path,'*'))
+				for item in fs:
+					snapshots.write(item, arcname=os.path.basename(item), 
+						compress_type=zipfile.ZIP_LZMA)
