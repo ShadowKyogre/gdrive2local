@@ -2,6 +2,7 @@
 
 from requests_oauthlib import OAuth2Session
 import subprocess
+import platform
 import os
 from dateutil import parser
 from dateutil import tz
@@ -22,6 +23,21 @@ blah = {'application/vnd.oasis.opendocument.text':'odt',
 	'text/html':'html+zip',
 	'application/pdf':'pdf'}
 """
+lopath=None
+if platform.system() == 'Windows':
+	import winreg
+	try:
+		loffice=winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, "Software\\LibreOffice\\LibreOffice")
+		lopath=winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, "Software\\LibreOffice\\LibreOffice\\{}".format(winreg.EnumKey(loffice, 0)))
+		lopath=winreg.QueryValueEx(lopath, 'Path')[0]
+	except OSError as e:
+		print("Libreoffice isn't installed, so...we can't do *.od* -> *.fod* conversion to make things easier on git...")
+else:
+	retcode=subprocess.call(['which','libreoffice'])
+	if retcode == 0:
+		lopath='libreoffice'
+	else:
+		print("Libreoffice isn't installed, so...we can't do *.od* -> *.fod* conversion to make things easier on git...")
 
 if __name__ == "__main__":
 	aparser = argparse.ArgumentParser(prog='drive2vcs', description="Make git repos for each file on google drive")
@@ -103,7 +119,7 @@ if __name__ == "__main__":
 	#http://superuser.com/questions/81563/whats-a-good-solution-for-file-tagging-in-linux
 
 	for gdrive_id in args.fids:
-		r = oauth.get(api_url_tpl.format("/files/{}/revisions".format(gdrive_id)))
+		max_rev = oauth.get(api_url_tpl.format("/files/{}/revisions/head".format(gdrive_id))).json()
 		f_repo_path = os.path.join(args.directory,gdrive_id)
 		f = oauth.get(api_url_tpl.format("/files/{}".format(gdrive_id))).json()
 		title = f['title'].replace('/', ' or ')
@@ -122,7 +138,13 @@ if __name__ == "__main__":
 		if not os.path.exists(f_repo_path):
 			os.makedirs(f_repo_path)
 			subprocess.call(['git', 'init'], cwd=f_repo_path)
-		for rev in r.json().get('items',[]):
+		for rid in range(1,int(max_rev['id'])+1):
+			rev=oauth.get(api_url_tpl.format("/files/{}/revisions/{}".format(gdrive_id, rid)))
+			if rev.status_code == 404:
+				print("Revision {} doesn't exist, continuing...".format(rid))
+				continue
+			else:
+				rev=rev.json()
 			rev_chk=''
 			try:
 				rev_chk=subprocess.check_output(['git', 'log', '--grep', 
@@ -149,8 +171,9 @@ if __name__ == "__main__":
 				for chunk in data.iter_content(1024):
 					fd.write(chunk)
 				#print(fname)
-			if f['mimeType'] in export_format.keys() and export_format[f['mimeType']][1][0] == "o":
-				subprocess.call(['unoconv', '-f', 'f{}'.format(export_format[f['mimeType']][1]), fname], cwd=f_repo_path)
+			if f['mimeType'] in export_format.keys() and export_format[f['mimeType']][1][0] == "o" and lopath is not None:
+				subprocess.call([lopath, '--headless', '--convert-to', 
+					'f{}'.format(export_format[f['mimeType']][1]), os.path.abspath(fname)], cwd=f_repo_path)
 				subprocess.call(['git', 'add', ffname], cwd=f_repo_path)
 			else:
 				subprocess.call(['git', 'add', fname], cwd=f_repo_path)
@@ -161,7 +184,7 @@ if __name__ == "__main__":
 					'-m', gdoc_indicator], cwd=f_repo_path)
 			#"""
 		else:
-			if f['mimeType'] in export_format.keys():
+			if f['mimeType'] in export_format.keys() and export_format[f['mimeType']][1][0] == "o" and lopath is not None:
 				if os.path.exists(fname):
 					os.remove(fname)
 			if 'description' in f.keys():
