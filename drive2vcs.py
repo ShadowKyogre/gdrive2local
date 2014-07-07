@@ -7,6 +7,7 @@ import os
 from dateutil import parser
 from dateutil import tz
 import json
+import re
 import argparse
 
 """
@@ -23,6 +24,9 @@ blah = {'application/vnd.oasis.opendocument.text':'odt',
 	'text/html':'html+zip',
 	'application/pdf':'pdf'}
 """
+
+last_rev=re.compile(r'Revision (\d+)')
+
 lopath=None
 if platform.system() == 'Windows':
 	import winreg
@@ -137,10 +141,24 @@ if __name__ == "__main__":
 		print("{} - {} ({})".format(gdrive_id, title, f['mimeType']))
 		if not os.path.exists(f_repo_path):
 			os.makedirs(f_repo_path)
+		try:
+			isgit=subprocess.check_output(['git','rev-parse', '--is-inside-work-tree'], cwd=f_repo_path).decode()
+		except subprocess.CalledProcessError as e:
 			subprocess.call(['git', 'init'], cwd=f_repo_path)
-		for rid in range(1,int(max_rev['id'])+1):
+			left_off=1
+		else:
+			if isgit != 'true\n':
+				subprocess.call(['git', 'init'], cwd=f_repo_path)
+				left_off=1
+			else:
+				try:
+					ln=subprocess.check_output(['git', 'log', '--pretty=oneline', 'HEAD'], cwd=f_repo_path).decode()
+					left_off=int(last_rev.findall(ln)[0])+1
+				except subprocess.CalledProcessError as e:
+					left_off=1
+		for rid in range(left_off,int(max_rev['id'])+1):
 			rev=oauth.get(api_url_tpl.format("/files/{}/revisions/{}".format(gdrive_id, rid)))
-			if rev.status_code == 404:
+			if rev.status_code != 200:
 				print("Revision {} doesn't exist, continuing...".format(rid))
 				continue
 			else:
